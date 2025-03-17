@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from pynput import keyboard, mouse
 import threading
 import time
