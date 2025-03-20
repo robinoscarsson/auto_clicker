@@ -3,77 +3,95 @@
 from pynput import keyboard, mouse
 import threading
 import time
+import argparse
 
-mouse_controller = mouse.Controller()
+class AutoClicker:
+    def __init__(self, cps=500, toggle_key='c'):
+        self.mouse_controller = mouse.Controller()
+        self.is_clicking = False
+        self.click_thread = None
+        self.running = True
+        
+        # Validate CPS
+        try:
+            self.cps = float(cps)
+            if self.cps <= 0:
+                raise ValueError("CPS must be positive")
+            self.click_interval = 1.0 / self.cps  # in seconds
+        except ValueError:
+            print(f"Invalid CPS value: {cps}. Using default of 500.")
+            self.cps = 500
+            self.click_interval = 0.002
+        
+        # Configure toggle key
+        if hasattr(keyboard.Key, toggle_key):
+            self.toggle_key = getattr(keyboard.Key, toggle_key)
+            self.toggle_key_name = toggle_key.upper()
+        else:
+            self.toggle_key = toggle_key
+            self.toggle_key_name = toggle_key.upper()
+             
+        print(f"Click interval: {self.click_interval:.6f} seconds ({self.cps} CPS)")
 
-is_mouse_clicking = False
+    def simulate_mouse_click(self):
+        """
+        Simulates mouse clicks at regular intervals based on CPS setting.
+        """
+        while self.is_clicking and self.running:
+            self.mouse_controller.click(mouse.Button.left, 1)
+            time.sleep(self.click_interval)
 
-def simulate_mouse_click():
-    """
-    Simulates mouse clicks at regular intervals.
+    def on_press(self, key):
+        """
+        Handles key press events.
+        """
+        try:
+            # Handle character keys
+            if hasattr(key, 'char') and key.char == self.toggle_key:
+                self.toggle_clicking()
+            # Handle special keys
+            elif key == self.toggle_key:
+                self.toggle_clicking()
+        except AttributeError:
+            pass
 
-    This function runs in a loop, clicking the left mouse button every 10 milliseconds
-    while the global flag `is_mouse_clicking` is set to True. The function is intended
-    to be run in a separate thread and will stop clicking when `is_mouse_clicking` is
-    set to False.
-    """
-    global is_mouse_clicking
-    while is_mouse_clicking:
-        mouse_controller.click(mouse.Button.left, 1)
-        time.sleep(0.01)  # Sleep for 10 milliseconds
+    def toggle_clicking(self):
+        """Toggle the clicking state"""
+        self.is_clicking = not self.is_clicking
+        if self.is_clicking:
+            self.click_thread = threading.Thread(target=self.simulate_mouse_click)
+            self.click_thread.daemon = True  # Thread will exit when program exits
+            self.click_thread.start()
+        print(f"Mouse clicking {'started' if self.is_clicking else 'stopped'}")
 
-def on_press(key):
-    """
-    Handles key press events.
+    def on_release(self, key):
+        """
+        Handles key release events.
+        """
+        if key == keyboard.Key.esc:
+            print("Stopping auto clicker")
+            self.is_clicking = False
+            self.running = False
+            return False  # Stop listener
 
-    This function is called whenever a key is pressed. If the F1 key is pressed,
-    it toggles the `is_mouse_clicking` flag and starts or stops the mouse clicking
-    simulation accordingly. If any other key is pressed, it logs the key press.
+    def start(self):
+        """
+        Starts the auto clicker.
+        """
+        print(f"Starting auto clicker. Press '{self.toggle_key_name}' to toggle clicking. Press ESC to exit.")
+        with keyboard.Listener(on_press=self.on_press, on_release=self.on_release) as listener:
+            listener.join()
 
-    Args:
-        key: The key that was pressed.
-    """
-    global is_mouse_clicking
-    try:
-        if key == keyboard.Key.f1:
-            is_mouse_clicking = not is_mouse_clicking
-            if is_mouse_clicking:
-                threading.Thread(target=simulate_mouse_click).start()
-            print(f"Mouse clicking {'started' if is_mouse_clicking else 'stopped'}")
-    except AttributeError:
-        print(f"Special key pressed: {key}")
+def parse_args():
+    parser = argparse.ArgumentParser(description="Auto Clicker")
+    parser.add_argument("--cps", type=float, default=500, help="Clicks per second (default: 500)")
+    parser.add_argument("--key", type=str, default="c", help="Key to toggle clicking (default: c)")
+    return parser.parse_args()
 
-def on_release(key):
-    """
-    Handles key release events.
-
-    This function is called whenever a key is released. If the Esc key is released,
-    it stops the keyboard listener, effectively terminating the program.
-
-    Args:
-        key: The key that was released.
-    """
-    if key == keyboard.Key.esc:
-        # Stop listener
-        print("Stopping listener")
-        return False
-
-def main(*args, **kwargs):
-    """
-    Starts the autoclicker program.
-
-    This function sets up and starts the keyboard listener. It prints instructions
-    to the console and listens for key press and release events. Pressing the F1 key
-    toggles the mouse clicking simulation on and off. Pressing the Esc key stops the
-    listener and terminates the program.
-
-    Args:
-        *args: Variable length argument list.
-        **kwargs: Arbitrary keyword arguments.
-    """
-    print("Starting autoclicker. Press F1 to start/stop clicking. Press ESC to exit.")
-    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
-        listener.join()
+def main():
+    args = parse_args()
+    auto_clicker = AutoClicker(cps=args.cps, toggle_key=args.key)
+    auto_clicker.start()
 
 if __name__ == "__main__":
     main()
