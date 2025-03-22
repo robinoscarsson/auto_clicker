@@ -35,13 +35,16 @@ class AutoClicker:
         self.toggle_mouse_button = None
         self.toggle_mouse_button_name = "None"
         if toggle_mouse_button:
-            if hasattr(mouse.Button, toggle_mouse_button):
-                self.toggle_mouse_button = getattr(mouse.Button, toggle_mouse_button)
+            # Convert to lowercase for case-insensitive comparison
+            toggle_mouse_button_lower = toggle_mouse_button.lower()
+            if hasattr(mouse.Button, toggle_mouse_button_lower):
+                self.toggle_mouse_button = getattr(mouse.Button, toggle_mouse_button_lower)
                 self.toggle_mouse_button_name = toggle_mouse_button.upper()
             else:
                 print(f"Invalid mouse button: {toggle_mouse_button}. Mouse toggling disabled.")
+                print(f"Valid options are: {', '.join([b for b in dir(mouse.Button) if not b.startswith('_')])}")
              
-        print(f"Click interval: {self.click_interval:.6f} seconds ({self.cps} CPS)")
+        print(f"Click interval: {self.click_interval:g} seconds ({self.cps} CPS)")
 
     def simulate_mouse_click(self):
         """
