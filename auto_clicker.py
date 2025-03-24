@@ -79,8 +79,13 @@ class AutoClicker:
         """Toggle the clicking state"""
         self.is_clicking = not self.is_clicking
         if self.is_clicking:
+            # Ensure previous thread is not running before creating a new one
+            if self.click_thread and self.click_thread.is_alive():
+                self.is_clicking = False  # Signal previous thread to stop
+                self.click_thread.join(timeout=0.1)  # Wait briefly for thread to exit
+                
             self.click_thread = threading.Thread(target=self.simulate_mouse_click)
-            self.click_thread.daemon = True  # Thread will exit when program exits
+            self.click_thread.daemon = True
             self.click_thread.start()
         print(f"Mouse clicking {'started' if self.is_clicking else 'stopped'}")
 
@@ -93,6 +98,18 @@ class AutoClicker:
             self.is_clicking = False
             self.running = False
             return False  # Stop listener
+
+    def cleanup(self):
+        """Clean up resources before exiting"""
+        self.is_clicking = False
+        self.running = False
+        
+        # Wait for click thread to terminate
+        if self.click_thread and self.click_thread.is_alive():
+            self.click_thread.join(timeout=0.2)
+            
+        # Release controllers if needed
+        # (pynput handles most of this automatically)
 
     def start(self):
         """
