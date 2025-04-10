@@ -87,7 +87,7 @@ class AutoClicker:
             self.click_thread = threading.Thread(target=self.simulate_mouse_click)
             self.click_thread.daemon = True
             self.click_thread.start()
-        print(f"Mouse clicking {'started' if self.is_clicking else 'stopped'}")
+        print(f"\rMouse clicking {'started' if self.is_clicking else 'stopped'}     ", end="", flush=True)
 
     def on_release(self, key):
         """
