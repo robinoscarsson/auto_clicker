@@ -32,7 +32,7 @@ A lightweight, customizable auto clicker utility written in Python. This tool al
 Run the auto clicker with default settings:
 
 ```bash
-python auto_clicker.py
+python -m auto_clicker.cli
 ```
 
 ### Command Line Arguments
@@ -45,16 +45,16 @@ python auto_clicker.py
 
 ```bash
 # Run with 1000 clicks per second
-python auto_clicker.py --cps 1000
+python -m auto_clicker.cli --cps 1000
 
 # Use the 'x' key to toggle clicking
-python auto_clicker.py --key x
+python -m auto_clicker.cli --key x
 
 # Use the right mouse button to toggle clicking
-python auto_clicker.py --mouse right
+python -m auto_clicker.cli --mouse right
 
 # Combine multiple options
-python auto_clicker.py --cps 200 --key v --mouse middle
+python -m auto_clicker.cli --cps 200 --key v --mouse middle
 ```
 
 ## Controls
@@ -62,6 +62,22 @@ python auto_clicker.py --cps 200 --key v --mouse middle
 - Press the toggle key (default: 'C') to start/stop clicking
 - Use the configured mouse button (if set) to start/stop clicking
 - Press ESC to exit the program
+
+## Project Structure
+
+```markdown
+auto_clicker/
+├── auto_clicker/       # Main package
+│   ├── __init__.py     # Package initialization
+│   ├── clicker.py      # Core functionality
+│   └── cli.py          # Command-line interface
+├── tests/              # Test suite
+│   ├── __init__.py
+│   └── test_clicker.py
+├── setup.py            # Installation configuration
+├── requirements.txt    # Dependencies
+└── README.md           # Documentation
+```
 
 ## License
 

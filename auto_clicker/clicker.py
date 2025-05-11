@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
+"""Core auto clicker functionality."""
 
 from pynput import keyboard, mouse
 import threading
 import time
-import argparse
 
 class AutoClicker:
     def __init__(self, cps=500, toggle_key='c', toggle_mouse_button=None):
@@ -12,16 +11,12 @@ class AutoClicker:
         self.click_thread = None
         self.running = True
         
-        # Validate CPS
-        try:
-            self.cps = float(cps)
-            if self.cps <= 0:
-                raise ValueError("CPS must be positive")
-            self.click_interval = 1.0 / self.cps  # in seconds
-        except ValueError:
-            print(f"Invalid CPS value: {cps}. Using default of 500.")
-            self.cps = 500
-            self.click_interval = 0.002
+        if cps <= 0:
+            print(f"Invalid CPS value: {cps}. Using default CPS of 500.")
+            cps = 500
+
+        self.cps = cps
+        self.click_interval = 1.0 / cps
         
         # Configure toggle key
         if hasattr(keyboard.Key, toggle_key):
@@ -48,11 +43,17 @@ class AutoClicker:
 
     def simulate_mouse_click(self):
         """
-        Simulates mouse clicks at regular intervals based on CPS setting.
+        Simulates mouse clicks with improved timing accuracy.
         """
+        next_click_time = time.time()
         while self.is_clicking and self.running:
-            self.mouse_controller.click(mouse.Button.left, 1)
-            time.sleep(self.click_interval)
+            current_time = time.time()
+            if current_time >= next_click_time:
+                self.mouse_controller.click(mouse.Button.left, 1)
+                next_click_time = current_time + self.click_interval
+            
+            # Smaller sleep to reduce CPU usage while maintaining precision
+            time.sleep(min(0.001, self.click_interval / 10))
 
     def on_press(self, key):
         """
@@ -77,16 +78,17 @@ class AutoClicker:
 
     def toggle_clicking(self):
         """Toggle the clicking state"""
-        self.is_clicking = not self.is_clicking
         if self.is_clicking:
-            # Ensure previous thread is not running before creating a new one
-            if self.click_thread and self.click_thread.is_alive():
-                self.is_clicking = False  # Signal previous thread to stop
-                self.click_thread.join(timeout=0.1)  # Wait briefly for thread to exit
-                
-            self.click_thread = threading.Thread(target=self.simulate_mouse_click)
-            self.click_thread.daemon = True
-            self.click_thread.start()
+            # Turning off - just update flag and let thread exit naturally
+            self.is_clicking = False
+        else:
+            # Turning on - create new thread only if needed
+            self.is_clicking = True
+            if not self.click_thread or not self.click_thread.is_alive():
+                self.click_thread = threading.Thread(target=self.simulate_mouse_click)
+                self.click_thread.daemon = True
+                self.click_thread.start()
+    
         print(f"\rMouse clicking {'started' if self.is_clicking else 'stopped'}     ", end="", flush=True)
 
     def on_release(self, key):
@@ -115,43 +117,33 @@ class AutoClicker:
         """
         Starts the auto clicker with both keyboard and mouse listeners.
         """
-        toggle_info = f"Press '{self.toggle_key_name}' to toggle clicking"
-        if self.toggle_mouse_button:
-            toggle_info += f" or use mouse {self.toggle_mouse_button_name}"
-        
-        print(f"Starting auto clicker. {toggle_info}. Press ESC to exit.")
-        
-        # Create both listeners
-        keyboard_listener = keyboard.Listener(
-            on_press=self.on_press, 
-            on_release=self.on_release
-        )
-        mouse_listener = mouse.Listener(
-            on_click=self.on_click
-        )
-        
-        # Start both listeners
-        keyboard_listener.start()
-        mouse_listener.start()
-        
-        # Keep the program running until keyboard listener stops
-        keyboard_listener.join()
-        
-        # Stop mouse listener when keyboard listener stops
-        mouse_listener.stop()
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Auto Clicker")
-    parser.add_argument("--cps", type=float, default=500, help="Clicks per second (default: 500)")
-    parser.add_argument("--key", type=str, default="c", help="Key to toggle clicking (default: c)")
-    parser.add_argument("--mouse", type=str, default=None, 
-                      help="Mouse button to toggle clicking (e.g., 'right', 'middle', default: None)")
-    return parser.parse_args()
-
-def main():
-    args = parse_args()
-    auto_clicker = AutoClicker(cps=args.cps, toggle_key=args.key, toggle_mouse_button=args.mouse)
-    auto_clicker.start()
-
-if __name__ == "__main__":
-    main()
+        try:
+            toggle_info = f"Press '{self.toggle_key_name}' to toggle clicking"
+            if self.toggle_mouse_button:
+                toggle_info += f" or use mouse {self.toggle_mouse_button_name}"
+            
+            print(f"Starting auto clicker. {toggle_info}. Press ESC to exit.")
+            
+            # Create both listeners
+            keyboard_listener = keyboard.Listener(
+                on_press=self.on_press, 
+                on_release=self.on_release
+            )
+            mouse_listener = mouse.Listener(
+                on_click=self.on_click
+            )
+            
+            # Start both listeners
+            keyboard_listener.start()
+            mouse_listener.start()
+            
+            # Keep the program running until keyboard listener stops
+            keyboard_listener.join()
+            
+            # Stop mouse listener when keyboard listener stops
+            mouse_listener.stop()
+            keyboard_listener.join()
+        finally:
+            mouse_listener.stop()
+            self.cleanup()
