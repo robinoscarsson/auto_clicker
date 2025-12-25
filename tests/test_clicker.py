@@ -24,8 +24,8 @@ class TestAutoClicker:
             assert ac.toggle_key == 'c'
             assert ac.toggle_key_name == 'C'
             assert ac.toggle_mouse_button is None
-            assert not ac.is_clicking
-            assert ac.running
+            assert not ac._clicking_event.is_set()
+            assert not ac._stop_event.is_set()
     
     def test_initialization_custom(self):
         """Test initialization with custom parameters."""
@@ -64,13 +64,13 @@ class TestAutoClicker:
                 
                 # Start clicking
                 auto_clicker.toggle_clicking()
-                assert auto_clicker.is_clicking
+                assert auto_clicker._clicking_event.is_set()
                 mock_thread_class.assert_called_once()
                 mock_thread.start.assert_called_once()
                 
                 # Stop clicking
                 auto_clicker.toggle_clicking()
-                assert not auto_clicker.is_clicking
+                assert not auto_clicker._clicking_event.is_set()
     
     def test_on_press_character_key(self, auto_clicker):
         """Test key press handler with character key."""
@@ -111,34 +111,35 @@ class TestAutoClicker:
     def test_on_release(self, auto_clicker):
         """Test key release handler."""
         # Test with Escape key
-        result = auto_clicker.on_release(keyboard.Key.esc)
+        with patch('builtins.print'):
+            result = auto_clicker.on_release(keyboard.Key.esc)
         assert result is False  # Should return False to stop listener
-        assert not auto_clicker.is_clicking
-        assert not auto_clicker.running
+        assert auto_clicker._stop_event.is_set()
+        assert not auto_clicker._clicking_event.is_set()
         
         # Reset for next test
-        auto_clicker.is_clicking = True
-        auto_clicker.running = True
+        auto_clicker._stop_event.clear()
+        auto_clicker._clicking_event.set()
         
         # Test with another key
         result = auto_clicker.on_release(keyboard.Key.space)
         assert result is None  # Should not return anything specific
-        assert auto_clicker.is_clicking  # Should remain unchanged
-        assert auto_clicker.running  # Should remain unchanged
+        assert auto_clicker._clicking_event.is_set()  # Should remain unchanged
+        assert not auto_clicker._stop_event.is_set()  # Should remain unchanged
     
     def test_cleanup(self, auto_clicker):
         """Test cleanup method."""
         # Create a mock thread
         mock_thread = MagicMock()
         auto_clicker.click_thread = mock_thread
-        auto_clicker.is_clicking = True
-        auto_clicker.running = True
+        auto_clicker._clicking_event.set()
         
-        auto_clicker.cleanup()
+        with patch('builtins.print'):
+            auto_clicker.cleanup()
         
-        assert not auto_clicker.is_clicking
-        assert not auto_clicker.running
-        mock_thread.join.assert_called_once_with(timeout=0.2)
+        assert auto_clicker._stop_event.is_set()
+        assert not auto_clicker._clicking_event.is_set()
+        mock_thread.join.assert_called_once_with(timeout=1.0)
     
     @patch('auto_clicker.clicker.keyboard.Listener')
     @patch('auto_clicker.clicker.mouse.Listener')
@@ -159,3 +160,26 @@ class TestAutoClicker:
         mock_mouse_listener.assert_called_once()
         mock_keyboard_instance.start.assert_called_once()
         mock_mouse_instance.start.assert_called_once()
+        
+        # Check both listeners are stopped in cleanup
+        mock_keyboard_instance.stop.assert_called_once()
+        mock_mouse_instance.stop.assert_called_once()
+    
+    @patch('auto_clicker.clicker.keyboard.Listener')
+    @patch('auto_clicker.clicker.mouse.Listener')
+    def test_start_exception_safety(self, mock_mouse_listener, mock_keyboard_listener, auto_clicker):
+        """Test that start() handles exceptions during listener creation safely."""
+        # Set up keyboard listener to succeed
+        mock_keyboard_instance = MagicMock()
+        mock_keyboard_listener.return_value = mock_keyboard_instance
+        
+        # Set up mouse listener to fail during creation
+        mock_mouse_listener.side_effect = Exception("Mouse listener creation failed")
+        
+        # Should not raise, should clean up keyboard listener
+        with patch('builtins.print'):
+            with pytest.raises(Exception, match="Mouse listener creation failed"):
+                auto_clicker.start()
+        
+        # Keyboard listener should still be stopped in cleanup
+        mock_keyboard_instance.stop.assert_called_once()

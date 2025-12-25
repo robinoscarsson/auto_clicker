@@ -7,9 +7,12 @@ import time
 class AutoClicker:
     def __init__(self, cps=500, toggle_key='c', toggle_mouse_button=None):
         self.mouse_controller = mouse.Controller()
-        self.is_clicking = False
+        
+        # Use threading primitives for safe state management
+        self._stop_event = threading.Event()
+        self._clicking_event = threading.Event()
+        self._toggle_lock = threading.Lock()
         self.click_thread = None
-        self.running = True
         
         if cps <= 0:
             print(f"Invalid CPS value: {cps}. Using default CPS of 500.")
@@ -44,16 +47,25 @@ class AutoClicker:
     def simulate_mouse_click(self):
         """
         Simulates mouse clicks with improved timing accuracy.
+        Uses events for clean shutdown and state management.
         """
-        next_click_time = time.time()
-        while self.is_clicking and self.running:
-            current_time = time.time()
-            if current_time >= next_click_time:
-                self.mouse_controller.click(mouse.Button.left, 1)
-                next_click_time = current_time + self.click_interval
+        next_click_time = time.perf_counter()
+        
+        while not self._stop_event.is_set():
+            current_time = time.perf_counter()
             
-            # Smaller sleep to reduce CPU usage while maintaining precision
-            time.sleep(min(0.001, self.click_interval / 10))
+            # Only click if clicking is enabled
+            if self._clicking_event.is_set():
+                if current_time >= next_click_time:
+                    self.mouse_controller.click(mouse.Button.left, 1)
+                    next_click_time = current_time + self.click_interval
+                
+                # Sleep until next click time, but wake up periodically to check stop event
+                sleep_time = max(0, min(next_click_time - current_time, 0.01))
+                time.sleep(sleep_time)
+            else:
+                # Not clicking, just wait for state change
+                time.sleep(0.01)
 
     def on_press(self, key):
         """
@@ -77,46 +89,54 @@ class AutoClicker:
             self.toggle_clicking()
 
     def toggle_clicking(self):
-        """Toggle the clicking state"""
-        if self.is_clicking:
-            # Turning off - just update flag and let thread exit naturally
-            self.is_clicking = False
-        else:
-            # Turning on - create new thread only if needed
-            self.is_clicking = True
-            if not self.click_thread or not self.click_thread.is_alive():
-                self.click_thread = threading.Thread(target=self.simulate_mouse_click)
-                self.click_thread.daemon = True
-                self.click_thread.start()
-    
-        print(f"\rMouse clicking {'started' if self.is_clicking else 'stopped'}     ", end="", flush=True)
+        """Toggle the clicking state with thread-safe locking"""
+        with self._toggle_lock:
+            if self._clicking_event.is_set():
+                # Turning off
+                self._clicking_event.clear()
+                status = "stopped"
+            else:
+                # Turning on - create thread if needed
+                self._clicking_event.set()
+                if not self.click_thread or not self.click_thread.is_alive():
+                    self.click_thread = threading.Thread(target=self.simulate_mouse_click)
+                    self.click_thread.daemon = True
+                    self.click_thread.start()
+                status = "started"
+        
+        print(f"\rMouse clicking {status}     ", end="", flush=True)
 
     def on_release(self, key):
         """
         Handles key release events.
         """
         if key == keyboard.Key.esc:
-            print("Stopping auto clicker")
-            self.is_clicking = False
-            self.running = False
+            print("\nStopping auto clicker")
+            self.request_stop()
             return False  # Stop listener
+    
+    def request_stop(self):
+        """Request a clean shutdown of all components"""
+        self._stop_event.set()
+        self._clicking_event.clear()
 
     def cleanup(self):
         """Clean up resources before exiting"""
-        self.is_clicking = False
-        self.running = False
+        self.request_stop()
         
-        # Wait for click thread to terminate
+        # Wait for click thread to terminate gracefully
         if self.click_thread and self.click_thread.is_alive():
-            self.click_thread.join(timeout=0.2)
-            
-        # Release controllers if needed
-        # (pynput handles most of this automatically)
+            self.click_thread.join(timeout=1.0)
+            if self.click_thread.is_alive():
+                print("Warning: Click thread did not terminate cleanly")
 
     def start(self):
         """
         Starts the auto clicker with both keyboard and mouse listeners.
+        Exception-safe: ensures listeners are properly stopped even if startup fails.
         """
+        keyboard_listener = None
+        mouse_listener = None
 
         try:
             toggle_info = f"Press '{self.toggle_key_name}' to toggle clicking"
@@ -127,7 +147,7 @@ class AutoClicker:
             
             # Create both listeners
             keyboard_listener = keyboard.Listener(
-                on_press=self.on_press, 
+                on_press=self.on_press,
                 on_release=self.on_release
             )
             mouse_listener = mouse.Listener(
@@ -141,9 +161,11 @@ class AutoClicker:
             # Keep the program running until keyboard listener stops
             keyboard_listener.join()
             
-            # Stop mouse listener when keyboard listener stops
-            mouse_listener.stop()
-            keyboard_listener.join()
         finally:
-            mouse_listener.stop()
+            # Safely stop both listeners
+            if mouse_listener is not None:
+                mouse_listener.stop()
+            if keyboard_listener is not None:
+                keyboard_listener.stop()
+            
             self.cleanup()
